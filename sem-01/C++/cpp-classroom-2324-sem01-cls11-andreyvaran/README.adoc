@@ -1,0 +1,290 @@
+= Семинар XI
+:icons: font
+:table-caption!:
+:example-caption!:
+:source-highlighter: highlightjs
+:revealjs_hash: true
+:customcss: https://rawcdn.githack.com/fedochet/asciidoc-revealjs-online-converter/7012d6dd12132363bbec8ba4800272ceb6d0a3e6/asciidoc_revealjs_custom_style.css
+:revealjs_theme: white
+:highlightjs-theme: https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@8.2/build/styles/tomorrow.min.css
+:stylesheet: main.css
+:toc:
+:toclevels: 4
+
+== Простые вариадики
+
+=== passing + making
+
+* покодим make_unique: https://godbolt.org/z/xo9Gh64z5[заготовка]
+** аргументы передаются
+** нужна идеальная передача
+
+=== задачки на fold expression
+
+* напишем `all`, `any`:
+* функции принимают произвольное число аргументов, приводимых к bool
+* возвращают bool — результат применения `&&` / `||` ко всем элементам
+** fold expression, без рекурсии
+
+== Вывод типов компилятором
+
+Необходимые конструкции для дорешки, подробнее в c++ pt.II
+
+=== auto
+
+* компилятор умеет выводить типы из выражений или других конструкций
+* пример: `auto` вместо типа — правила вывода шаблонного параметра аргумента функции[*]
+** в т.ч. отбрасываются `&`, `const`
+** => `auto&&` работает по правилам универсальных ссылок
+
+```c++
+auto i = 42;
+auto j = i;
+
+auto foo() { return 42; }
+auto foo(int i, int j) -> decltype(i + j) { /*...*/ }
+```
+
+=== decltype, мотивация
+
+Мотивация: если есть параметр-шаблонный тип — его легко использовать
+
+* также легко использовать его мемберы
+
+```c++
+template<typename It>
+void foo(It &b) {
+    It copy = b;
+    It::difference_type d = b - copy;
+}
+```
+
+=== operator decltype
+
+Если явного типа нет — можно его получить:
+
+* по переменной (актуально, если она объявлена `auto` и др.)
+* по выражению-доступу к полю класса
+** => возвратится тип, с которым сущность объявлена
+* по выражению
+** возвратится бессылочный тип выражения + ссылка в зависимости от категории значения
+*** `&` для lvalue
+*** `&&` для xvalue
+*** `<пусто>` для prvalue
+
+ifdef::backend-revealjs[=== !]
+
+```c++
+template<typename U, typename V>
+void foo(U && u, V && v) {
+    auto sum = u + v;
+    decltype(u + v) sum2 = u + v;
+    static_assert(std::is_same_v<decltype(sum), decltype(sum2)>);
+}
+```
+
+=== decltype(auto)
+
+* похож на `auto` — пишется вместо типа
+* компилятор выведет тип по правилам `decltype`
+** в отличии от `auto`: сохранит ссылки => более "легковесная" передача
+* https://godbolt.org/z/cGz4WoaPT[пример]
+
+== metaprogramming example: tuple
+
+Обобщение std::pair
+[source, cpp]
+----
+using tuple_t = std::tuple<int, std::string, char, std::vector<int>>;
+tuple_t tp{42, "foo", 'a', {24}};
+
+// доступ к элементу
+std::string& s = std::get<1>(tp);
+----
+
+Пример использования: хранить аргументы для какого-то функтора (в коде с шаблонами, `std::bind`, thread_pool и др.)
+
+=== Реализация: std::pair
+
+```c++
+template<typename T1, typename T2, typename T3, typename T4>
+using tuple_t = pair<T1, pair<T2, pair<T3, T4>>>;
+```
+
+Недостатки:
+
+* не variadic :(
+* `std::get<2>(tp) == tp.second.second.first`
+
+=== Реализация: рекурсия по списку типов
+
+* попишем решение: https://godbolt.org/z/681brWMqW[заготовка]
+
+=== gets
+
+[source, cpp]
+----
+// сработает?
+int i = 1;
+auto& s1 = std::get<i>(tp);
+----
+
+* напишем tuple::get
+
+=== однотипные действия над элементами
+
+* попринтим элементы в консоль (print_tuple)
+* мысли:
+** надо делать `std::cout << std::get<i>(tp)` для `0 <= i < size_of_tuple(tp)`
+** можно ли сделать цикл по элементам?
+** надо получить `size_of_tuple(tp)` и сгенерировать `I...`
+** ...
+** NB: готовый std-хелпер https://en.cppreference.com/w/cpp/utility/integer_sequence#Helper_templates[`std::make_index_sequence<N>`]
+
+== tuple <--> variadic templates
+
+Как переводить аргументы-вариадики в кортеж и обратно
+
+=== tuple <- variadic templates
+
+* пример задачи: сохранить аргументы для вызова функтора потом
+* `Args...` -> завернуть в объект-`Tuple`: можно через https://en.cppreference.com/w/cpp/utility/tuple/forward_as_tuple[`std::forward_as_tuple`]
+** `std::forward_as_tuple` — делает контейнер с ссылками внутри (не значениями! не `std::decay_t`)
+
+=== tuple -> variadic templates
+
+* `Tuple` -> развернуть в отдельные `Args...`:
+* пример задачи: передать сохраненные аргументы в вызов функтор
+** `std::get<i>(tp), ...` для `0 <= i < size_of_tuple(tp)`
+*** проблема: это использование pack expansion над некими `I`
+*** => в аргументах нужно сгенерировать parameter-pack-последовательность `0, 1, 2, ..., size_of_tuple(tp)`
+** т.е. надо сделать переход `Tuple` -> `Tuple, I...` -> `Args...` (== `Tuple<I>...`)
+** последовательность size_t'ов можно получить через https://en.cppreference.com/w/cpp/utility/integer_sequence#Helper_templates[`std::make_index_sequence<N>`]
+
+=== делаем for_each [*]
+
+* *похоже на print_tuple*
+* функция принимает tuple и функтор
+* возвращает void
+* последовательно вызывает функтор на элементах
+** fold expression, без рекурсии
+** используем make_index_sequence
+
+=== пример: make_pair и std::decay_t [*]
+
+* https://godbolt.org/z/TM9jP6exP[godbolt]
+* вывод: выведеннные типы не всегда используются как есть (иногда используются decay_t)
+
+
+== Задачки
+
+Весь код должен жить в пространстве имён cls11
+
+== Логгер (0.75 балла)
+Хотим написать фабрику логирующих функций
+
+[source, cpp]
+----
+template<class UnaryFunction>
+decltype(auto) logging_wrapper(UnaryFunction&& f, const std::string& log_before,
+  const std::string& log_after);
+----
+
+ifdef::backend-revealjs[=== !]
+
+Логирующая функция, созданная фабрикой, должна:
+
+* вызывать переданную в фабрику функцию от одного аргумента
+** возвращать то, что она возвращает!
+* в stdout вывести:
+** перед вызовом — строку `log_before`
+** после — `log_after`
+
+Подробности использования смотрите в тестах
+
+== Events (0.75 балла)
+
+Напишите класс `Event<ReturnType(ArgType)>`:
+
+* класс шаблонный — содержит два параметра: ReturnType, ArgType
+* на него можно подписывать callable через `Event::subscribe`
+** с сигнатурой `ReturnType(ArgType)`
+* все подписанные коллбэки можно просигналить через `Event::fire`
+** в этот момент их нужно поочередно вызвать с переданным аргументом
+** аргумент нужно идеально передать
+** результат коллбэков игнорируется
+
+=== example
+
+[source, cpp]
+----
+Event ev;
+ev.subscribe(std::bind(foobar, 1, 2, 3, _1));
+ev.subscribe([](void *arg) { std::cout << arg; });
+
+// вызываются foobar(1, 2, 3, "hello!"), lambda("hello!")
+ev.fire(const_cast<char*>(“hello!”));
+----
+
+== tuple_utils (0.75 балла)
+
+* `at_many`: функция принимает ключ и произвольное число контейнеров
+* возвращает tuple из значений по этому ключу
+
+[source, cpp]
+----
+std::map<std::string, int> m1 = {{"hello", 1}, {"world", 2}};
+std::map<std::string, std::string> m2 = {{"hello", "nothing"}};
+
+assert(
+    cls11::at_many("hello", m1, m2, m1)
+    ==
+    std::make_tuple(1, "nothing", 1)
+);
+----
+
+ifdef::backend-revealjs[=== !]
+
+* `transformElements` — принимает tuple и функтор
+* результат — новый tuple, и `newTuple<i>`:
+** равен `tuple<i>`, если функтор не применим к `tuple<i>` (в смысле типов)
+** иначе равен `func(tuple<i>)`
+** NB: тип элемента может поменяться из-за применения функтора
+
+ifdef::backend-revealjs[=== !]
+
+* `apply` — принимает функтор и tuple
+* результат — это вызов функтора на элементах кортежа
+** (всех сразу, переданных в один вызов)
+** аргументы передаются идеально
+
+== join (0.75 балла)
+
+Реализуйте функцию join — принимает один или больше функторов и
+возвращает полиморфный функтор, который выполняет тот из них,
+который наилучшим образом подошёл к типу аргумента.
+
+Если не подойдёт ни один из вариантов, это должно приводить к неудаче подстановки,
+а не ошибке компиляции.
+
+Обратите внимание, что свободные функции также могут быть аргументами функции join.
+(Тест, проверяющий свободные функции, закомментирован)
+
+[source, cpp]
+----
+auto both = cls11::join(
+    [](std::string const& s) { return "it's a string"s; },
+    [](std::pair<int, int> const& p) { return "it's a pair"s; }
+);
+
+both("string");  // it's a string
+both(std::pair(1, 2));  // it's a pair
+
+----
+
+ifdef::backend-revealjs[=== !]
+
+* такой функтор удобно использовать в https://en.cppreference.com/w/cpp/utility/variant/visit[std::visit]
+** когда есть `std::variant<Type1, Type2, Type3>`
+** делаем в коде `Visitor` с `operator()(Type1)`, `operator()(Type2)`, ...
+** используем `std::visit` — он применит нужную перегрузку визитора на вариант

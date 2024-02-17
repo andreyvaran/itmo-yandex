@@ -1,0 +1,345 @@
+= Семинар II
+:icons: font
+:table-caption!:
+:source-highlighter: highlightjs
+:revealjs_hash: true
+:customcss: https://gistcdn.githack.com/fedochet/4ee0f4a2224ecd29a961082a0c63c020/raw/18c107982aba90bb94194c0ac3a8a5ca9bad6782/asciidoc_revealjs_custom_style.css
+:revealjs_theme: white
+:stylesheet: main.css
+:toc:
+:toclevels: 4
+
+
+== Некоторые ошибки из дорешки
+
+=== Неконсистентные типы
+
+[source,cpp]
+----
+int64_t id(int64_t n) {
+    int tmp = n;
+    return n;
+}
+----
+В чем проблема?
+
+=== Переполнение
+
+[source,cpp]
+----
+void fizzbuzz(uint8_t n) {
+    for (uint8_t i = 1; i <= n; ++i) {
+        /* do job */
+    }
+}
+----
+
+Где проблемы?
+
+[%step]
+* Как починить?
+
+ifdef::backend-revealjs[=== !]
+
+Вариант исправления:
+
+[source,cpp]
+----
+void fizzbuzz(uint8_t n) {
+    for (uint8_t i = 0; i < n; ++i) {
+        uint8_t j = i + 1;
+        /* do job */
+    }
+}
+----
+
+=== Лишние заголовочные файлы и using
+
+.header.hpp
+[source,cpp]
+----
+#include <iostream>
+#include <cstdint>
+
+void foo(uint64_t times);
+----
+
+Что здесь лишнее?
+
+ifdef::backend-revealjs[=== !]
+
+Оставим только необходимое:
+
+.header.hpp
+[source,cpp]
+----
+#include <cstdint>
+
+void foo(uint64_t times);
+----
+
+Что еще?
+
+ifdef::backend-revealjs[=== !]
+
+.header.hpp
+[source,cpp]
+----
+#pragma once // или написать include guard
+
+#include <cstdint>
+
+void foo(uint64_t times);
+----
+
+== Долги с прошлого семинара
+
+=== include guards
+
+.header.hpp
+[source,cpp]
+----
+// #pragma once
+// или написать *include guard*
+
+#ifndef HEADER_HPP
+#define HEADER_HPP
+
+#include <cstdint>
+
+void foo(uint64_t times);
+
+#endif
+----
+
+ifdef::backend-revealjs[=== !]
+
+* работает на переменных препроцессора
+** в коде: `#define SOME_ID optional_value`
+** при компиляции: `g++ -DSOME_ID=42`
+** можно использовать условия
+* https://godbolt.org/z/xEYqbox91[godbolt]
+
+
+=== assert
+
+* суровый метод проверки условия `assert(<condition>);`
+* отключается через `-DNDEBUG`: https://godbolt.org/z/EPWf4MWz6[godbolt]
+
+== Сегодня на занятии
+
+* преобразования типов
+* статические массивы
+* си-строки
+* указатели
+* сборка и make
+
+== Преобразования простых типов
+
+[source,cpp]
+----
+int32_t i32 = 4; // битовое представление: 0...0000000100
+float f = 4;     // уфф, ну там знак + порядок + мантисса...
+
+f = i32;         // ok: биты-с-целым-числом -> биты-с-floating-point
+----
+
+=== static_cast
+* инструкция компилятору делать безопасное преобразование типов
+** есть набор условий, когда оно применимо
+** в т.ч. определено приведение простых типов (int32_t -> int64_t, int32_t -> float и др.)
+*** "безопасность" ≈ "единичка остается единичной, пятерка пятеркой и т.д."
+* иногда выполняется неявно (implicit)
+
+=== implicit cast
+----
+int32_t i = getInt32();
+int32_t j = getInt32();
+int64_t v = i + j;
+----
+
+* в чем проблемы?
+** https://en.cppreference.com/w/c/language/conversion#Usual_arithmetic_conversions[подробнее про конвертации в арифметике]
+** https://en.cppreference.com/w/cpp/language/operator_arithmetic#Overflows[про overflow]
+
+== Статические массивы
+При передаче в функцию будем явно передавать размер
+
+[source,cpp]
+----
+void do_something(int *a, size_t s);
+
+const size_t N = 10;
+int array[N] = { 1, -3 };
+
+do_something(array, N);
+----
+
+== Си-строки
+
+[source,cpp]
+----
+const char sa[] = "hi";
+const char* sp = "hi";
+----
+
+[%step]
+* Где можно опустить `const`?
+
+ifdef::backend-revealjs[=== !]
+
+[source,cpp]
+----
+// ok, local array
+char sa[] = "hi";
+char sa2[] = {'h', 'i', '\0'};
+// можно менять
+
+// warning: ISO C++ forbids converting
+// a string constant to 'char*'
+char* sp = "hi";
+// Изменение sp[0] => UB
+----
+
+* godbolt будет в advanced-части
+
+ifdef::backend-revealjs[=== !]
+
+[source,cpp]
+----
+const char* s = "Hello\0, World";
+----
+
+[%step]
+* `strlen("Hello\0, World")`?
+* `sizeof("Hello\0, World")`?
+
+ifdef::backend-revealjs[=== !]
+
+Полезные функции:
+
+* из `<cstring>`
+* `strlen` -- получить длину си-строки
+* `strcmp` -- сравнить пару (лексикографически)
+* `strchr` -- поискать символ
+* `strncat` -- склеить строки
+
+== Адресация и указатели
+
+* пригодятся на занятии, см. лекцию
+* _поливкодим:_
+** адреса локальных переменных
+** невалидные адреса (скоуп)
+** пример валидного адреса
+** [*] передача переменных через адрес
+
+== Задачи
+
+* пишите _хорошие_ инструкции в make
+
+=== #1 string_utils
+
+* нельзя использовать `<cstring>` (!)
+* Реализуйте `myStrCmp` — точно такую же, как `strcmp` в `<cstring>`
+
+[source,cpp]
+----
+int myStrCmp(const char* s1, const char* s2);
+----
+
+ifdef::backend-revealjs[=== !]
+
+* Реализуйте `findNearestSame`
+
+[source,cpp]
+----
+ptrdiff_t findNearestSame(const char* s, const char* c);
+----
+
+** `s` — си-строка
+** `c` — указатель на символ внутри нее (не `\0`)
+** найдите сдвиг от `c` до ближайшего такого же символа в строке
+*** если нет такого же — верните `0`
+*** если ближайших несколько — верните положительный сдвиг
+
+
+=== #2 array_utils
+
+_Инты -- это `int`, для описания количества используйте `size_t`_
+
+_Под массивом подразумевается прием по указателю_
+
+ifdef::backend-revealjs[=== !]
+
+Реализуйте:
+
+* `sum` - принимает массив интов и количество элементов в массиве; возвращает их сумму
+* `countNumbers` - принимает массив интов в диапазоне [0, 9] и количество элементов в массиве; возвращает
+количество уникальных чисел в массиве
+* `popZeros` — принимает массив указателей на инты, и перемещает значения-нули в конец
+
+ifdef::backend-revealjs[=== !]
+
+[source,cpp]
+----
+using const_int_pointer_t = const int*;
+
+void popZeros(const_int_pointer_t *a, size_t size);
+
+int i = 2, j = 0, k = -2;
+----
+
+* на вход: `{&i, nullptr, &j, &k}`
+* в результате: `{&i, nullptr, &k, &j}`
+
+=== #3 C from C++
+* `sum.h`
+** объявить функцию `int sum(int, int)`
+* `sum.c`
+** определить функцию `int sum(int, int)`
+* `test.cpp`: подключить `sum.h`
+* написать достаточный таргет `smoke_task_3`
+
+ifdef::backend-revealjs[=== !]
+
+* компилировать необходимо соответствующими компиляторами в отдельные объектные файлы (`gcc`/`clang`/`cl` для комиляции `C`)
+* в `make` для сабмита решения — используйте `g++` + `gcc`
+* в задаче нужен https://en.cppreference.com/w/cpp/language/language_linkage#Explanation[`extern "C"`]
+* name mangling [*]
+
+== advanced
+
+=== Makefiles
+
+Декларативное описание целей и зависимостей:
+[source, make]
+----
+<target>: <dep1> <dep2> ...
+[tab] <command>
+
+main.o: main.cpp
+	g++ -c main.cpp
+
+hello.o: hello.cpp
+	g++ -c hello.cpp
+
+all: main.o hello.o
+	g++ main.o hello.o -o hello
+----
+
+ifdef::backend-revealjs[=== !]
+
+Улучшения:
+
+* `g++`, флаги компиляции оборачиваем в "константы"
+** => -копипаста
+* каждый таргет — артефакт на ФС
+** => применяется "кэширование": ленивая пересборка по mtime
+** чем гранулярнее — тем лучше
+** надо аккуратно писать зависимости (следить за полнотой)
+* запуски бинарей [здесь и далее в дорешках] — отдельно, вне makefile
+
+=== c-strings
+
+* representation: https://godbolt.org/z/P5xTGoE5c[godbolt]
+* data & encoding: https://stackoverflow.com/questions/402283/stdwstring-vs-stdstring[so answer]
